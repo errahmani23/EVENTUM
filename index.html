@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVENTUM - Eventos Corporativos Memorables</title>
+    <!-- Carga de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase Libraries - Agregadas para usar storage, aunque no se usa en este caso particular. -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    </script>
+    <!-- Fuente Inter (por defecto en Tailwind, pero se define para asegurar) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <style>
+        /* Estilos personalizados para efectos de scroll y elementos visuales */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+        }
+        .fade-in.appear {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .logo-shadow {
+            text-shadow: 0 0 10px rgba(246, 190, 2, 0.7); /* Sombra sutil para el logo */
+        }
+        .hero-animation {
+            animation: pulse-shadow 3s infinite alternate;
+        }
+        @keyframes pulse-shadow {
+            from { box-shadow: 0 0 10px rgba(246, 190, 2, 0.4); }
+            to { box-shadow: 0 0 30px rgba(246, 190, 2, 0.8); }
+        }
+
+        /* --- Estilos para la Tarjeta Flip 3D --- */
+        .flip-card {
+            background-color: transparent;
+            perspective: 1000px; /* Necesario para el efecto 3D */
+            height: 320px; /* Altura fija para la tarjeta */
+        }
+
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.8s;
+            transform-style: preserve-3d; /* Clave para el giro 3D */
+        }
+
+        .flip-card:hover .flip-card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .flip-card-front, .flip-card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden; /* Oculta el reverso durante el giro */
+            backface-visibility: hidden;
+            border-radius: 1rem; /* Aplica el redondeado a ambas caras */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end; /* Alineamos el contenido al fondo */
+            align-items: center;
+        }
+
+        .flip-card-front {
+            /* Contiene la imagen y el título principal */
+            background-color: #bbb; 
+            color: black;
+            z-index: 2;
+            justify-content: center; /* Alineamos el contenido (título) al centro */
+        }
+
+        .flip-card-back {
+            /* Contiene la descripción */
+            background-color: #F6BE02; /* eventum-bright */
+            color: #000000;
+            transform: rotateY(180deg);
+            justify-content: center;
+        }
+
+        /* La imagen de fondo cubre toda la tarjeta frontal */
+        .flip-card-front .card-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 1rem;
+            transition: transform 0.5s;
+            opacity: 0.7; /* Opacidad para que el texto resalte */
+        }
+        
+        /* Efecto de zoom sutil en la imagen al hacer hover */
+        .flip-card:hover .flip-card-front .card-bg {
+             transform: scale(1.05);
+        }
+        
+        .flip-card-front h3 {
+            position: relative;
+            z-index: 10;
+            text-shadow: 0 0 5px #000; /* Sombra al texto para mejorar la visibilidad */
+        }
+
+        /* Estilos del Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            animation: fadeIn 0.3s;
+        }
+        .modal-content {
+            margin: 5% auto; /* 5% desde arriba y centrado */
+            padding: 40px 20px;
+            width: 90%;
+            max-width: 1000px;
+            border-radius: 1rem;
+            position: relative;
+            animation: slideIn 0.4s ease-out;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideIn { from { transform: translateY(-50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        /* Estilos para el campo de entrada del prompt y el resultado */
+        #idea-generation-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        /* Corregido: Color de texto blanco para legibilidad sobre fondo oscuro */
+        #idea-generation-section textarea {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border: 2px solid #C7930D;
+            background-color: #FFF;
+            resize: vertical;
+            color: #000; /* Color de texto predeterminado */
+        }
+        /* Sobrescribir el estilo para que el color del texto sea blanco en el campo de ideas */
+        #idea-generation-section #idea-prompt {
+            color: #000000; /* Texto en negro sobre el fondo blanco del textarea */
+            background-color: #FFFFFF;
+        }
+
+        #idea-output {
+            min-height: 100px;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            background-color: #FFF;
+            color: #000;
+            border: 1px dashed #93651A;
+            white-space: pre-wrap; /* Mantiene el formato del texto generado */
+        }
+        .loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #F6BE02;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin-right: 0.5rem;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script>
+        // Configuración de la paleta de colores de la marca en Tailwind
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'eventum-dark': '#93651A', /* Dorado Oscuro/Marrón */
+                        'eventum-bright': '#F6BE02', /* Amarillo Brillante/Naranja */
+                        'eventum-mid': '#C7930D', /* Dorado Mostaza */
+                        'eventum-black': '#000000',
+                        'eventum-white': '#FFFFFF',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="font-sans text-eventum-black bg-eventum-white antialiased">
+
+    <!-- Navbar Pegadiza (Sticky) -->
+    <header id="navbar" class="sticky top-0 z-50 bg-eventum-black/95 backdrop-blur-sm shadow-xl transition-all duration-300">
+        <nav class="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <!-- Logo EVENTUM (Texto simple, mayúsculas, color brillante, extrabold) -->
+            <a href="#inicio" class="text-3xl font-extrabold text-eventum-bright tracking-wider hover:text-eventum-white transition duration-300">
+                EVENTUM
+            </a>
+            
+            <!-- Menú de Escritorio - Se añade 'items-center' y 'h-full' a los elementos internos para asegurar la alineación vertical -->
+            <div class="hidden md:flex space-x-8 text-eventum-white text-lg font-medium h-full items-center">
+                <a href="#inicio" class="hover:text-eventum-bright transition duration-300 py-2">Inicio</a>
+                <!-- Se añade 'py-2' al botón para igualar el padding vertical de los enlaces -->
+                <button onclick="openModal('mvv-modal')" class="hover:text-eventum-bright transition duration-300 py-2">Sobre Nosotros</button> 
+                <a href="#filosofia" class="hover:text-eventum-bright transition duration-300 py-2">Filosofía</a>
+                <a href="#servicios" class="hover:text-eventum-bright transition duration-300 py-2">Servicios</a>
+                <!-- ENLACE A LA GALERÍA EXTERNA -->
+                <a href="https://eventumps.my.canva.site/galeria-de-fotos" target="_blank" rel="noopener noreferrer" class="hover:text-eventum-bright transition duration-300 py-2">Galería</a>
+                <a href="#contacto" class="px-4 py-2 bg-eventum-bright text-eventum-black rounded-full hover:bg-eventum-mid transition duration-300">Contactar</a>
+            </div>
+
+            <!-- Botón de Menú Móvil -->
+            <button id="menu-button" class="md:hidden text-eventum-bright focus:outline-none">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+            </button>
+        </nav>
+        
+        <!-- Menú Móvil Desplegable -->
+        <div id="mobile-menu" class="hidden md:hidden bg-eventum-black/90 pb-4">
+            <a href="#inicio" class="block py-2 px-6 text-eventum-white hover:bg-eventum-dark transition duration-300">Inicio</a>
+            <!-- Enlace móvil que abre el modal -->
+            <button onclick="openModal('mvv-modal'); document.getElementById('mobile-menu').classList.add('hidden');" class="w-full text-left py-2 px-6 text-eventum-white hover:bg-eventum-dark transition duration-300">Sobre Nosotros</button>
+            <a href="#filosofia" class="block py-2 px-6 text-eventum-white hover:bg-eventum-dark transition duration-300">Filosofía</a>
+            <a href="#servicios" class="block py-2 px-6 text-eventum-white hover:bg-eventum-dark transition duration-300">Servicios</a>
+            <!-- ENLACE MÓVIL A LA GALERÍA EXTERNA -->
+            <a href="https://eventumps.my.canva.site/galeria-de-fotos" target="_blank" rel="noopener noreferrer" class="block py-2 px-6 text-eventum-white hover:bg-eventum-dark transition duration-300">Galería</a>
+            <a href="#contacto" class="block py-3 px-6 text-center mt-2 mx-4 bg-eventum-bright text-eventum-black rounded-lg hover:bg-eventum-mid transition duration-300">Contactar</a>
+        </div>
+    </header>
+
+    <main>
+        <!-- 1. Hero Section (Inicio) -->
+        <section id="inicio" class="relative min-h-screen flex items-center justify-center text-center bg-eventum-black overflow-hidden">
+            <!-- NOTA: Fondo negro sólido para máximo contraste. -->
+            <div class="container mx-auto px-4 relative z-10 py-20 lg:py-0">
+                <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-eventum-white leading-tight mb-6 fade-in hero-animation p-4 rounded-xl">
+                    <span class="text-eventum-bright">TRANSFORMAMOS</span> SU ENCUENTRO CORPORATIVO.
+                </h1>
+                <p class="text-xl sm:text-2xl text-eventum-mid max-w-3xl mx-auto mb-10 fade-in" style="transition-delay: 0.2s;">
+                    Creamos experiencias únicas, memorables y estratégicas que fortalecen la cultura y generan conexiones significativas.
+                </p>
+                <a href="#contacto" class="inline-block px-10 py-4 text-lg font-bold bg-eventum-bright text-eventum-black rounded-full shadow-lg hover:bg-eventum-mid hover:shadow-2xl transition duration-500 transform hover:scale-105 fade-in" style="transition-delay: 0.4s;">
+                    Planifique su Evento Ahora
+                </a>
+            </div>
+        </section>
+
+        <!-- 2. Filosofía (Our Core Values) -->
+        <section id="filosofia" class="py-20 lg:py-32 bg-eventum-white">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 class="text-4xl lg:text-5xl font-extrabold text-center mb-16 text-eventum-dark fade-in">Nuestra Filosofía: El Evento como Estrategia</h2>
+                
+                <div class="grid md:grid-cols-3 gap-10">
+                    
+                    <!-- Tarjeta 1: Transformar -->
+                    <div class="p-8 bg-eventum-mid/10 rounded-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] transition duration-500 fade-in group">
+                        <div class="text-5xl text-eventum-bright mb-4">✨</div>
+                        <h3 class="text-2xl font-bold mb-3 text-eventum-dark group-hover:text-eventum-bright">Transformación</h3>
+                        <p class="text-eventum-black/80">
+                            Un evento no es un gasto, es una inversión. Lo transformamos en una herramienta poderosa para proyectar la identidad de su empresa y lograr objetivos específicos.
+                        </p>
+                    </div>
+
+                    <!-- Tarjeta 2: Conectar -->
+                    <div class="p-8 bg-eventum-mid/10 rounded-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] transition duration-500 fade-in group" style="transition-delay: 0.15s;">
+                        <div class="text-5xl text-eventum-bright mb-4">🤝</div>
+                        <h3 class="text-2xl font-bold mb-3 text-eventum-dark group-hover:text-eventum-bright">Conexión</h3>
+                        <p class="text-eventum-black/80">
+                            Facilitamos el encuentro humano. Generamos entornos donde los colaboradores, clientes y socios pueden crear lazos emocionales y profesionales duraderos.
+                        </p>
+                    </div>
+
+                    <!-- Tarjeta 3: Estratégico -->
+                    <div class="p-8 bg-eventum-mid/10 rounded-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] transition duration-500 fade-in group" style="transition-delay: 0.3s;">
+                        <div class="text-5xl text-eventum-bright mb-4">💡</div>
+                        <h3 class="text-2xl font-bold mb-3 text-eventum-dark group-hover:text-eventum-bright">Estrategia</h3>
+                        <p class="text-eventum-black/80">
+                            Cada detalle, desde la agenda hasta el catering, está alineado con el mensaje y la cultura organizacional que usted desea fortalecer.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. Servicios (Interactive Flip Cards) -->
+        <section id="servicios" class="py-20 lg:py-32 bg-eventum-dark/5">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 class="text-4xl lg:text-5xl font-extrabold text-center mb-16 text-eventum-dark fade-in">Nuestros Servicios Estratégicos</h2>
+                
+                <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    
+                    <!-- Servicio 1: Conferencias y Congresos (FLIP CARD) -->
+                    <div class="flip-card rounded-2xl shadow-2xl fade-in">
+                        <div class="flip-card-inner">
+                            <!-- FRONT: Título e Imagen -->
+                            <div class="flip-card-front p-0">
+                                <img src="https://placehold.co/600x320/C7930D/FFFFFF?text=." alt="Conferencias y Congresos" class="card-bg" />
+                                <div class="absolute inset-0 bg-eventum-black/50 flex items-center justify-center rounded-2xl">
+                                    <h3 class="text-4xl font-extrabold text-eventum-white p-4">CONFERENCIAS</h3>
+                                </div>
+                            </div>
+                            <!-- BACK: Descripción -->
+                            <div class="flip-card-back text-eventum-black p-8">
+                                <p class="text-xl font-semibold text-center leading-relaxed">
+                                    Gestión integral para eventos de gran escala, asegurando logística impecable y mensajes claros.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Servicio 2: Lanzamiento de Producto (FLIP CARD) -->
+                    <div class="flip-card rounded-2xl shadow-2xl fade-in" style="transition-delay: 0.1s;">
+                        <div class="flip-card-inner">
+                            <!-- FRONT: Título e Imagen -->
+                            <div class="flip-card-front p-0">
+                                <img src="https://placehold.co/600x320/93651A/FFFFFF?text=." alt="Lanzamiento de Producto" class="card-bg" />
+                                <div class="absolute inset-0 bg-eventum-black/50 flex items-center justify-center rounded-2xl">
+                                    <h3 class="text-4xl font-extrabold text-eventum-white p-4">LANZAMIENTO</h3>
+                                </div>
+                            </div>
+                            <!-- BACK: Descripción -->
+                            <div class="flip-card-back text-eventum-black p-8">
+                                <p class="text-xl font-semibold text-center leading-relaxed">
+                                    Creamos experiencias inmersivas que posicionan su nuevo producto en la mente de sus stakeholders.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Servicio 3: Team Building / Integración (FLIP CARD) -->
+                    <div class="flip-card rounded-2xl shadow-2xl fade-in" style="transition-delay: 0.2s;">
+                        <div class="flip-card-inner">
+                            <!-- FRONT: Título e Imagen -->
+                            <div class="flip-card-front p-0">
+                                <img src="https://placehold.co/600x320/F6BE02/FFFFFF?text=." alt="Team Building y Reuniones" class="card-bg" />
+                                <div class="absolute inset-0 bg-eventum-black/50 flex items-center justify-center rounded-2xl">
+                                    <h3 class="text-4xl font-extrabold text-eventum-white p-4">TEAM BUILDING</h3>
+                                </div>
+                            </div>
+                            <!-- BACK: Descripción -->
+                            <div class="flip-card-back text-eventum-black p-8">
+                                <p class="text-xl font-semibold text-center leading-relaxed">
+                                    Actividades diseñadas para fortalecer la cultura organizacional y cohesionar equipos de alto rendimiento.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. Galería Externa (Nueva Sección) -->
+        <section id="galeria" class="py-20 lg:py-32 bg-eventum-black text-eventum-white">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 text-center fade-in">
+                <h2 class="text-4xl lg:text-5xl font-extrabold mb-4 text-eventum-bright">Visualice Nuestras Creaciones</h2>
+                <p class="text-lg lg:text-xl max-w-4xl mx-auto mb-8 text-eventum-mid">
+                    Explore nuestro portafolio completo y descubra la calidad y el impacto visual de las experiencias que diseñamos.
+                </p>
+                <a href="https://eventumps.my.canva.site/galeria-de-fotos" target="_blank" rel="noopener noreferrer" 
+                   class="inline-block px-12 py-4 text-xl font-bold bg-eventum-bright text-eventum-black rounded-full shadow-2xl hover:bg-eventum-white hover:text-eventum-dark transition duration-500 transform hover:scale-105">
+                    Ver Galería Completa
+                </a>
+            </div>
+        </section>
+
+
+        <!-- 5. Contáctenos (FORMULARIO CON INTEGRACIÓN GEMINI) -->
+        <section id="contacto" class="py-20 lg:py-24 bg-eventum-white text-eventum-black">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 fade-in">
+                <h2 class="text-4xl lg:text-5xl font-extrabold mb-4 text-center text-eventum-dark">Planifiquemos su Próximo Evento Estratégico</h2>
+                <p class="text-lg lg:text-xl max-w-4xl mx-auto mb-12 text-center text-eventum-dark/70">
+                    Rellene el formulario y utilice nuestra herramienta de IA para obtener una idea inicial que podemos convertir en realidad.
+                </p>
+                
+                <div class="grid lg:grid-cols-2 gap-12 max-w-5xl mx-auto">
+                    
+                    <!-- Columna de Generación de Ideas con Gemini -->
+                    <div class="bg-eventum-dark p-6 sm:p-8 rounded-xl shadow-2xl text-eventum-white h-full flex flex-col">
+                        <h3 class="text-2xl font-bold mb-4 text-eventum-bright flex items-center">
+                            Generador de Ideas de Evento ✨
+                        </h3>
+                        <p class="mb-4 text-eventum-white/80 text-sm">
+                            Describa brevemente el objetivo, el tema o el tipo de evento que desea, y la IA de Gemini le dará una idea creativa y estratégica.
+                        </p>
+                        
+                        <!-- Sección de Generación -->
+                        <div id="idea-generation-section">
+                            <label for="idea-prompt" class="block text-eventum-mid font-semibold mb-1">Objetivo del Evento (Ej: "Lanzar un nuevo software a 50 comerciales")</label>
+                            <textarea id="idea-prompt" rows="3" placeholder="Escriba aquí su idea o necesidad..."></textarea>
+                            
+                            <button id="generate-idea-btn" class="flex items-center justify-center w-full px-6 py-3 text-lg font-bold bg-eventum-bright text-eventum-black rounded-full hover:bg-eventum-white transition duration-300 transform hover:scale-[1.01]">
+                                <span id="btn-text">Generar Idea ✨</span>
+                                <div id="loading-spinner" class="loading-spinner hidden"></div>
+                            </button>
+                            
+                            <div class="mt-4">
+                                <h4 class="text-eventum-mid font-semibold mb-2">Idea Estratégica Generada:</h4>
+                                <div id="idea-output" class="text-sm">La idea de evento aparecerá aquí.</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Columna del Formulario de Contacto -->
+                    <form id="contact-form" class="bg-eventum-mid/10 p-6 sm:p-8 rounded-xl shadow-xl h-full">
+                        <div class="space-y-4">
+                            <div>
+                                <label for="name" class="block text-eventum-dark font-semibold mb-1">Nombre Completo</label>
+                                <input type="text" id="name" name="name" required class="w-full p-3 border border-eventum-mid/50 rounded-lg focus:ring-eventum-bright focus:border-eventum-bright transition duration-300">
+                            </div>
+                            <div>
+                                <label for="email" class="block text-eventum-dark font-semibold mb-1">Correo Electrónico</label>
+                                <input type="email" id="email" name="email" required class="w-full p-3 border border-eventum-mid/50 rounded-lg focus:ring-eventum-bright focus:border-eventum-bright transition duration-300">
+                            </div>
+                            <div>
+                                <label for="company" class="block text-eventum-dark font-semibold mb-1">Empresa</label>
+                                <input type="text" id="company" name="company" class="w-full p-3 border border-eventum-mid/50 rounded-lg focus:ring-eventum-bright focus:border-eventum-bright transition duration-300">
+                            </div>
+                            <div>
+                                <label for="event_type" class="block text-eventum-dark font-semibold mb-1">Tipo de Evento</label>
+                                <select id="event_type" name="event_type" required class="w-full p-3 border border-eventum-mid/50 rounded-lg focus:ring-eventum-bright focus:border-eventum-bright transition duration-300 bg-white">
+                                    <option value="">Seleccione una opción</option>
+                                    <option value="Conferencia">Conferencia / Congreso</option>
+                                    <option value="Lanzamiento">Lanzamiento de Producto</option>
+                                    <option value="Team Building">Team Building / Integración</option>
+                                    <option value="Gala">Gala / Cena de Premios</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="message" class="block text-eventum-dark font-semibold mb-1">Mensaje / Requisitos Adicionales</label>
+                                <textarea id="message" name="message" rows="4" required class="w-full p-3 border border-eventum-mid/50 rounded-lg focus:ring-eventum-bright focus:border-eventum-bright transition duration-300"></textarea>
+                            </div>
+                            
+                            <!-- Campo oculto para adjuntar la idea generada por Gemini -->
+                            <input type="hidden" id="gemini_idea" name="gemini_idea" value="">
+
+                            <button type="submit" class="w-full mt-4 px-6 py-3 text-xl font-bold text-eventum-white bg-eventum-dark rounded-lg hover:bg-eventum-mid hover:text-eventum-black transition duration-300 shadow-lg">
+                                Enviar Solicitud
+                            </button>
+                            
+                            <p id="form-status" class="text-center mt-4 text-sm font-semibold"></p>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-eventum-dark py-8 text-eventum-white">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm">
+            <p>&copy; 2025 EVENTUM. Todos los derechos reservados.</p>
+            <p class="mt-2 text-eventum-mid">Eventos Estratégicos, Experiencias Memorables.</p>
+        </div>
+    </footer>
+    
+    <!-- Modal de Sobre Nosotros (MVV) -->
+    <div id="mvv-modal" class="modal">
+        <div class="modal-content bg-eventum-black text-eventum-white">
+            <div class="flex justify-end">
+                <button onclick="closeModal('mvv-modal')" class="text-eventum-white hover:text-eventum-bright text-4xl leading-none">&times;</button>
+            </div>
+            
+            <h2 class="text-4xl lg:text-5xl font-extrabold text-center mb-12 text-eventum-bright border-b-4 border-eventum-mid pb-4">
+                Sobre EVENTUM: Misión, Visión y Valores
+            </h2>
+            
+            <div class="grid lg:grid-cols-3 gap-8">
+                
+                <!-- Misión -->
+                <div class="p-6 bg-eventum-dark/20 rounded-xl shadow-lg">
+                    <p class="text-6xl font-extrabold text-eventum-bright mb-4">1</p>
+                    <h3 class="text-2xl font-bold mb-3 text-eventum-white">MISIÓN</h3>
+                    <div class="h-1 w-1/3 bg-eventum-mid mb-4"></div>
+                    <p class="text-base text-eventum-white/90">
+                        Nuestra misión es planificar y gestionar eventos corporativos y personalizados para cada empresa, garantizándoles la máxima calidad.
+                    </p>
+                </div>
+
+                <!-- Visión -->
+                <div class="p-6 bg-eventum-dark/20 rounded-xl shadow-lg">
+                    <p class="text-6xl font-extrabold text-eventum-bright mb-4">2</p>
+                    <h3 class="text-2xl font-bold mb-3 text-eventum-white">VISIÓN</h3>
+                    <div class="h-1 w-1/3 bg-eventum-mid mb-4"></div>
+                    <p class="text-base text-eventum-white/90">
+                        Queremos convertirnos en la empresa referente en la organización de eventos empresariales, marcando tendencia, innovación, excelencia y sostenibilidad.
+                    </p>
+                </div>
+                
+                <!-- Valores -->
+                <div class="p-6 bg-eventum-dark/20 rounded-xl shadow-lg">
+                    <p class="text-6xl font-extrabold text-eventum-bright mb-4">3</p>
+                    <h3 class="text-2xl font-bold mb-3 text-eventum-white">VALORES</h3>
+                    <div class="h-1 w-1/3 bg-eventum-mid mb-4"></div>
+                    <p class="text-base text-eventum-white/90">
+                        Consideramos que Eventum debe ser una organización transparente, responsable, colaborativa e innovadora.
+                    </p>
+                </div>
+
+            </div>
+            
+            <div class="text-center mt-10">
+                 <a href="#contacto" onclick="closeModal('mvv-modal');" class="inline-block px-8 py-3 text-lg font-bold bg-eventum-bright text-eventum-black rounded-full shadow-lg hover:bg-eventum-mid transition duration-300">
+                    Contáctenos
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript para Interactividad y GEMINI API -->
+    <script>
+        const API_KEY = ""; // La clave será inyectada en el entorno de ejecución
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+        
+        // Función de utilidad para manejar el backoff exponencial
+        async function fetchWithExponentialBackoff(url, options, maxRetries = 5, delay = 1000) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status !== 429 && response.ok) {
+                        return response;
+                    } else if (response.status === 429 && i < maxRetries - 1) {
+                        await new Promise(resolve => setTimeout(resolve, delay * (2 ** i)));
+                        continue;
+                    } else {
+                        throw new Error(`API request failed with status ${response.status}`);
+                    }
+                } catch (error) {
+                    if (i < maxRetries - 1) {
+                        await new Promise(resolve => setTimeout(resolve, delay * (2 ** i)));
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+        }
+
+        // --- FUNCIONALIDAD GEMINI ---
+        const generateIdeaBtn = document.getElementById('generate-idea-btn');
+        const ideaPromptInput = document.getElementById('idea-prompt');
+        const ideaOutput = document.getElementById('idea-output');
+        const geminiIdeaHiddenInput = document.getElementById('gemini_idea');
+        const btnText = document.getElementById('btn-text');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        
+        // Función principal para llamar a Gemini
+        async function generateIdea() {
+            const prompt = ideaPromptInput.value.trim();
+            if (!prompt) {
+                ideaOutput.innerHTML = '<span class="text-red-600">Por favor, describa el objetivo de su evento para generar una idea.</span>';
+                return;
+            }
+
+            // Mostrar estado de carga
+            btnText.textContent = 'Generando...';
+            loadingSpinner.classList.remove('hidden');
+            generateIdeaBtn.disabled = true;
+
+            const systemPrompt = `Actúa como un estratega de eventos corporativos de lujo para la empresa EVENTUM. Tu misión es tomar el objetivo o tema proporcionado por el cliente y generar una idea de evento única, memorable y de alto nivel. La respuesta debe ser concisa, con un TÍTULO llamativo y una DESCRIPCIÓN de no más de 5 líneas que destaque el concepto estratégico (ejemplo: inmersión, gamificación, experiencia 360). NO uses markdown ni formato, solo texto plano.`;
+            const userQuery = `Objetivo del cliente: "${prompt}"`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+            };
+
+            try {
+                const response = await fetchWithExponentialBackoff(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const generatedText = result.candidates?.[0]?.content?.parts?.[0]?.text || "No se pudo generar una idea, intente con una descripción diferente.";
+                
+                ideaOutput.textContent = generatedText;
+                geminiIdeaHiddenInput.value = generatedText; // Guardar la idea en el campo oculto
+                
+            } catch (error) {
+                console.error("Error al llamar a la API de Gemini:", error);
+                ideaOutput.innerHTML = '<span class="text-red-600">Error en la generación de la idea. Por favor, inténtelo de nuevo más tarde.</span>';
+                geminiIdeaHiddenInput.value = "Error al generar idea.";
+            } finally {
+                // Restablecer estado del botón
+                btnText.textContent = 'Generar Idea ✨';
+                loadingSpinner.classList.add('hidden');
+                generateIdeaBtn.disabled = false;
+            }
+        }
+
+        // Asignar el listener al botón
+        generateIdeaBtn.addEventListener('click', generateIdea);
+
+
+        // --- ENVÍO DE FORMULARIO DE CONTACTO SIMULADO ---
+        const contactForm = document.getElementById('contact-form');
+        const formStatus = document.getElementById('form-status');
+
+        contactForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Recoger todos los datos, incluyendo la idea generada por Gemini
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Agregar la idea generada (incluye el valor del input oculto)
+            data['idea_generada'] = geminiIdeaHiddenInput.value;
+
+            console.log("Datos de la solicitud de contacto:", data);
+            
+            // Simulación de envío exitoso
+            formStatus.textContent = '✅ Solicitud enviada con éxito. ¡EVENTUM se pondrá en contacto pronto!';
+            formStatus.classList.remove('text-red-600', 'text-eventum-mid');
+            formStatus.classList.add('text-green-600');
+            this.reset();
+            ideaOutput.textContent = 'La idea de evento aparecerá aquí.';
+            geminiIdeaHiddenInput.value = '';
+            
+            // Opcional: Si se quisiera enviar por correo (requeriría un backend):
+            // const mailBody = `Nombre: ${data.name}\nEmail: ${data.email}\nEmpresa: ${data.company}\nTipo: ${data.event_type}\nMensaje: ${data.message}\n\nIDEA GEMINI:\n${data.idea_generada}`;
+            // window.location.href = `mailto:info@eventum.com?subject=Nueva Solicitud de Evento&body=${encodeURIComponent(mailBody)}`;
+        });
+        
+        // --- FUNCIONES DE INTERACTIVIDAD (Modal, Scroll) ---
+        // Función para abrir el modal
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.style.display = 'block';
+                document.body.style.overflow = 'hidden'; // Evita el scroll en el body
+            }
+        }
+
+        // Función para cerrar el modal
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.style.display = 'none';
+                document.body.style.overflow = 'auto'; // Restaura el scroll en el body
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // 1. Alternar Menú Móvil
+            const menuButton = document.getElementById('menu-button');
+            const mobileMenu = document.getElementById('mobile-menu');
+
+            menuButton.addEventListener('click', () => {
+                mobileMenu.classList.toggle('hidden');
+            });
+            
+            // Cerrar menú móvil al hacer clic en un enlace de ANCLA
+            mobileMenu.querySelectorAll('a[href^="#"]').forEach(link => {
+                link.addEventListener('click', () => {
+                    mobileMenu.classList.add('hidden');
+                });
+            });
+
+            // Cerrar modal si se hace clic fuera del contenido
+            const mvvModal = document.getElementById('mvv-modal');
+            window.addEventListener('click', (event) => {
+                if (event.target === mvvModal) {
+                    closeModal('mvv-modal');
+                }
+            });
+
+            // 2. Animación de Scroll (Fade In)
+            const faders = document.querySelectorAll('.fade-in');
+            const appearOptions = {
+                threshold: 0,
+                rootMargin: "0px 0px -100px 0px" // Hace que aparezca antes de llegar al 100% de la sección
+            };
+
+            const appearOnScroll = new IntersectionObserver(function(
+                entries, 
+                appearOnScroll
+            ) {
+                entries.forEach(entry => {
+                    if (!entry.isIntersecting) {
+                        return;
+                    } else {
+                        entry.target.classList.add('appear');
+                        appearOnScroll.unobserve(entry.target);
+                    }
+                });
+            }, appearOptions);
+
+            faders.forEach(fader => {
+                appearOnScroll.observe(fader);
+            });
+            
+            // 3. Smooth Scroll (para asegurar compatibilidad)
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    
+                    const targetId = this.getAttribute('href');
+                    if (targetId.startsWith('#')) {
+                        document.querySelector(targetId).scrollIntoView({
+                            behavior: 'smooth'
+                        });
+                    }
+                    // NOTA: Para enlaces externos como la Galería, no se ejecuta preventDefault.
+                });
+            });
+        });
+    </script>
+</body>
+</html>
